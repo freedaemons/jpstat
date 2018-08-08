@@ -3,15 +3,21 @@ import requests as requests
 import pandas as pandas
 import numpy as numpy
 import os
+import io
 
 import logging
 import datetime
+
+# https://cloud.google.com/sql/docs/postgres/connect-external-app#languages
+import psycopg2
+conn = psycopg2.connect(user=<USER>, password=<PASSWORD>,
+                        host='/cloudsql/<INSTANCE_CONNECTION_NAME>')
 
 from google.cloud import storage
 bucket_name = "i-agility-212104.appspot.com"
 mdir = os.path.join('extracts', 'monthly_reports')
 
-def download_task():
+def files_review_task():
 	#Retrieve all months currently available 
 	col = ['year', 'month', 'url']
 	top_df = pd.DataFrame(columns=col)
@@ -50,7 +56,18 @@ def download_task():
 	excelref_df = top_df.merge(excels_df, how='left', on='url')
 
 	logging.info('Excel URLs retrieved in ' + str(datetime.utcnow() - retrieve_month_excels_starttime) + '.')
-	logging.info(str(len(excelref_df)) + ' files to retrieve.')
+	logging.info(str(len(excelref_df)) + ' files to retrieve. Writing table to database...')
+
+	#Convert DataFrame to stream and upload to PostgreSQL table on Google Cloud SQL
+	cur = conn.cursor()
+	excelurl_textstream = io.StringIO()
+
+	excelref_df.to_csv(excelurl_textstream, sep='\t', header=False, index=False)
+	excelurl_textstream.seek(0)
+	cur.copy_from(output, 'jpstat_excel_urls', null="") # null values become ''
+	conn.commit()
+
+	logging.info('Excel URL database table updated.')
 
 	#FIXME
 	# It's neccessary to check the descriptions of the excel files to see if a new description, i.e. new type of excel sheet structure, has been introduced.
@@ -60,6 +77,14 @@ def download_task():
 	exceldesccount_df.columns=['count']
 	exceldesccount_df.reset_index(inplace=True)
 
+	exceldesccount_textstream = io.StringIO()
+	exceldesccount_df.to_csv(exceldesccount_textstream, sep='\t', header=False, index=False)
+	exceldesccount_textstream.seek(0)
+	cur.copy_from(exceldesccount_textstream, 'jpstat_excel_descriptions', null="") # null values become ''
+	conn.commit()
+
+#FIXME: This task, unlike the review task that builds the url table, needs to be parallelizable
+def files_download_task():
 	# Now actually download the files to local disk, before writing them to Google Cloud Storage (No direct transfer API available yet via python.).
 	cwd = os.getcwd()
 	logging.info('Now working in ' + cwd)
@@ -93,10 +118,8 @@ def download_task():
 
 	logging.info('Downloads completed in ' + str(datetime.utcnow() - retrieve_month_excels_starttime) + '.')
 
-	#return the summary DataFrame for possible reference somewhere...
-	return exceldesccount_df
-
-def upload_task():
+#FIXME: This task needs to be performed local to the machine that performed the parallel download task, possibly as a subDAG?
+def files_cloudupload_task():
 	# Next, upload the files to Google Cloud Storage using the
 	filepathlist = []
 	for dirpath, subdir, files in os.walk(mdir):

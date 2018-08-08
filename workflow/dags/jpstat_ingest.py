@@ -48,17 +48,45 @@ with models.DAG(
 
 	###
 
-	# Define operators here too, e.g. 
-    hello_python = python_operator.PythonOperator(
-	    task_id='hello',
-	    python_callable=greeting)
 
-    goodbye_bash = bash_operator.BashOperator(
-        task_id='bye',
-        bash_command='echo Goodbye.')
+	# Define operators here too, e.g. 
+
+	# https://cloud.google.com/sql/docs/postgres/connect-external-app
+
+	cloudsql_proxydownload = bash_operator.BashOperator(
+		task_id='cloudsql-proxydownload',
+        bash_command='wget https://dl.google.com/cloudsql/cloud_sql_proxy.linux.amd64 -O cloud_sql_proxy \
+        && chmod +x cloud_sql_proxy'
+		)
+
+	cloudsql_proxymkdir = bash_operator.BashOperator(
+        task_id='cloudsql-proxymkdir',
+        bash_command='sudo mkdir /cloudsql; sudo chmod 777 /cloudsql'
+	)
+
+	#use Cloud SDK authentication, i.e. set GOOGLE_APPLICATION_CREDENTIALS environment variable on each machine
+	cloudsql_proxyinvoke = bash_operator.BashOperator(
+        task_id='cloudsql-proxyinvoke',
+	'./cloud_sql_proxy -instances=<INSTANCE_CONNECTION_NAME> -dir=/cloudsql &')
+
+
+#FIXME: This task should be performed on a single compute machine, instead of a cluster
+    files_review = python_operator.PythonOperator(
+	    task_id='files-review',
+	    python_callable=files_review_task)
+
+#FIXME: This task, unlike the review task that builds the url table, needs to be parallelizable
+    files_download = python_operator.PythonOperator(
+	    task_id='files-download',
+	    python_callable=files_download_task)
+
+#FIXME: This task needs to be performed local to the machine that performed the parallel download task, possibly as a subDAG?
+    files_cloudupload = python_operator.PythonOperator(
+	    task_id='files-cloudupload',
+	    python_callable=files_cloudupload_task)
 
     # Finally, define the order in which tasks complete by using the >> and << operators, e.g.
-    hello_python >> goodbye_bash
+    cloudsql_proxydownload >> cloudsql_proxymkdir >> cloudsql_proxyinvoke >> files_review >> files_download >> files_cloudupload
 
 # We can also structure DAGs and tasks like this:
 transform_dag = models.DAG(
