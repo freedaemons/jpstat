@@ -1,9 +1,16 @@
 from __future__ import print_function
 
+import airflow
+
 from airflow import models
+from airflow.operators import dummy_operator
+from airflow.operators import subdag_operator
+
 from airflow.operators import bash_operator
 from airflow.operators import python_operator
 from airflow.operators import email_operator
+
+from datetime import datetime, timedelta
 
 # See https://airflow.apache.org/integration.html#cloud-storage for help using Google Cloud Storage operators
 # See https://cloud.google.com/composer/docs/how-to/using/writing-dags#gcp_name_operators for help using other Google platform operators
@@ -15,11 +22,15 @@ from airflow.contrib.ohooks import gcs_hook
 # See https://airflow.apache.org/integration.html#googlecloudstoragehook for information on how to use this hook
 # E.g. gcs_hook.GoogleCloudStorageHook(google_cloud_storage_conn_id='google_cloud_storage_default', delegate_to=None)
 
+import sys
+sys.path.append(os.path.join(os.pardir, 'tasks'))
+import ingest, clean
+
 default_dag_args = {
 	'owner': 'friedemann',
 	'retries': 2,
 	'retry_delay': timedelta(minutes=20),
-	'start_date': datetime(2018, 7, 31),
+	'start_date': datetime(2018, 8, 13),
 	'end_date': None,
 	'depends_on_past': False, #This decides whether or not this task depends on prior tasks' successful completion to be allowed to run
 	'email': ['friedemann.ang@gmail.com'],
@@ -28,10 +39,10 @@ default_dag_args = {
 }
 
 with models.DAG(
-	'jpstat_ingest',
+	dag_id='jpstat_ingest',
 	schedule_interval=datetime.timedelta(days=7),
 	default_args=default_dag_args
-	) as dag:
+	) as injest_dag:
 
 	# Define functions here if necessary
 
@@ -48,3 +59,40 @@ with models.DAG(
 
     # Finally, define the order in which tasks complete by using the >> and << operators, e.g.
     hello_python >> goodbye_bash
+
+# We can also structure DAGs and tasks like this:
+transform_dag = models.DAG(
+	dag_id='jpstat_transform',
+	schedule_interval=datetime.timedelta(days=7),
+	default_args=default_dag_args
+	)
+
+transform_start = dummy_operator.DummyOperator(
+	task_id='transform-start',
+	default_args=default_dag_args,
+	dag=transform_dag
+	)
+
+section_1 = subdag_operator.SubDagOperator(
+	task_id='section-1',
+	subdag=subdag('transform_subdag_1', 'section-1', args),
+	default_args=default_dag_args,
+	dag=transform_dag
+	)
+
+section_2 = subdag_operator.SubDagOperator(
+	task_id='section-1',
+	subdag=subdag('transform_subdag_2', 'section-1', args),
+	default_args=default_dag_args,
+	dag=transform_dag
+	)
+
+transform_end = dummy_operator.DummyOperator(
+	task_id='transform-end',
+	default_args=default_dag_args,
+	dag=transform_dag
+	)
+
+transform_start.set_downstream(section_1)
+section_1.set_downstream(section_2)
+section_2.set_downstream(transform_end)
