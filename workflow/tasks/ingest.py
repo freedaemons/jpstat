@@ -1,17 +1,20 @@
 from bs4 import BeautifulSoup
-import requests as requests
-import pandas as pandas
-import numpy as numpy
+import requests as re
+import pandas as pd
+import numpy as np
 import os
 import io
+import csv
 
 import logging
-import datetime
+logging.getLogger().setLevel(logging.INFO)
+from datetime import datetime
 
 # https://cloud.google.com/sql/docs/postgres/connect-external-app#languages
 import psycopg2
-conn = psycopg2.connect(user=<USER>, password=<PASSWORD>,
-                        host='/cloudsql/<INSTANCE_CONNECTION_NAME>')
+conn = psycopg2.connect(user='postgres', password='Xypherium-0',
+						dbname='jpstat',
+                        host='/cloudsql/i-agility-212104:us-central1:dev-1')
 
 from google.cloud import storage
 bucket_name = "i-agility-212104.appspot.com"
@@ -28,7 +31,7 @@ def files_review_task():
 	data = r.text
 	year='None'
 	soup = BeautifulSoup(data, "lxml")
-
+	table = soup.find('div', {'class': 'stat-cycle_sheet'})
 	for year_section in table.find_all('ul', {'class': 'stat-cycle_ul_other'}):
 	    header = year_section.find('li', {'class': 'stat-cycle_header'})
 	    year = header.find('span').get_text(' ', strip=True)
@@ -45,12 +48,12 @@ def files_review_task():
 	        else:
 	            top_df = top_df.append(row, ignore_index=True) #why the hell doesn't df.append work inplace?? Didn't it always use to?
 
-	logging.info('DataFrame of months generated: ' + str(top_df.size) + 'months available, from ' 
+	logging.info('DataFrame of months generated: ' + str(top_df.size) + ' months available, from ' 
 		+ top_df.loc[len(top_df)-1,'year'] + ' ' + top_df.loc[len(top_df)-1,'month'] + ' to ' 
 		+ top_df.loc[0,'year'] + ' ' + top_df.loc[0,'month'])
 
 	retrieve_month_excels_starttime = datetime.utcnow()
-	logging.info('Starting to retrieve urls of every excel sheet at ' + retrieve_month_excels_starttime + ' UTC.')
+	logging.info('Starting to retrieve urls of every excel sheet at ' + str(retrieve_month_excels_starttime) + ' UTC.')
 
 	excels_df = pd.concat([retrieve_month_excels(murl, path) for murl in top_df['url']])
 	excelref_df = top_df.merge(excels_df, how='left', on='url')
@@ -61,10 +64,12 @@ def files_review_task():
 	#Convert DataFrame to stream and upload to PostgreSQL table on Google Cloud SQL
 	cur = conn.cursor()
 	excelurl_textstream = io.StringIO()
+	upload_df = excelref_df.copy()
+	upload_df['excel_description'].replace(['\n', '\t'], '', regex=True, inplace=True)
 
-	excelref_df.to_csv(excelurl_textstream, sep='\t', header=False, index=False)
-	excelurl_textstream.seek(0)
-	cur.copy_from(output, 'jpstat_excel_urls', null="") # null values become ''
+	upload_df.to_csv(excelurl_textstream, sep='\t', header=False, index=False, quoting=csv.QUOTE_NONE)
+	excelurl_textstream.seek(0) 
+	cur.copy_from(excelurl_textstream, 'jpstat_excel_urls', null="") # null values become ''
 	conn.commit()
 
 	logging.info('Excel URL database table updated.')
@@ -158,6 +163,7 @@ def retrieve_month_excels(murl, path):
             mdf = mdfrow
         else:
             mdf = mdf.append(mdfrow, ignore_index=True) #why the hell doesn't df.append work inplace?? Didn't it always use to?
+    logging.info("Retrieved excel URLs from month-URL: " + murl + '.')
     return(mdf)
 
 """
