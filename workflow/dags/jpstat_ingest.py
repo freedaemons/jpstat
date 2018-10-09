@@ -24,16 +24,20 @@ from airflow.contrib.ohooks import gcs_hook
 
 import sys
 sys.path.append(os.path.join(os.pardir, 'tasks'))
-import ingest, clean
+import ingest.files_review_task
+import ingest.files_downupload_task
+
+import os
+import pandas as pd
 
 default_dag_args = {
 	'owner': 'friedemann',
 	'retries': 2,
-	'retry_delay': timedelta(minutes=20),
-	'start_date': datetime(2018, 8, 13),
+	'retry_delay': timedelta(hours=12),
+	'start_date': datetime(2018, 10, 13),
 	'end_date': None,
 	'depends_on_past': False, #This decides whether or not this task depends on prior tasks' successful completion to be allowed to run
-	'email': ['friedemann.ang@gmail.com'],
+	'email': ['friedemann.ang@datavlt.com'],
 	'email_on_failure': True,
 	'email_on_retry': False,
 }
@@ -51,25 +55,6 @@ with models.DAG(
 
 	# Define operators here too, e.g. 
 
-	# https://cloud.google.com/sql/docs/postgres/connect-external-app
-
-	cloudsql_proxydownload = bash_operator.BashOperator(
-		task_id='cloudsql-proxydownload',
-        bash_command='wget https://dl.google.com/cloudsql/cloud_sql_proxy.linux.amd64 -O cloud_sql_proxy \
-        && chmod +x cloud_sql_proxy'
-		)
-
-	cloudsql_proxymkdir = bash_operator.BashOperator(
-        task_id='cloudsql-proxymkdir',
-        bash_command='sudo mkdir /cloudsql; sudo chmod 777 /cloudsql'
-	)
-
-	#use Cloud SDK authentication, i.e. set GOOGLE_APPLICATION_CREDENTIALS environment variable on each machine
-	cloudsql_proxyinvoke = bash_operator.BashOperator(
-        task_id='cloudsql-proxyinvoke',
-	'./cloud_sql_proxy -instances=<INSTANCE_CONNECTION_NAME> -dir=/cloudsql &')
-
-
 #FIXME: This task should be performed on a single compute machine, instead of a cluster
     files_review = python_operator.PythonOperator(
 	    task_id='files-review',
@@ -77,16 +62,16 @@ with models.DAG(
 
 #FIXME: This task, unlike the review task that builds the url table, needs to be parallelizable
     files_download = python_operator.PythonOperator(
-	    task_id='files-download',
+	    task_id='files-downupload',
 	    python_callable=files_download_task)
 
 #FIXME: This task needs to be performed local to the machine that performed the parallel download task, possibly as a subDAG?
-    files_cloudupload = python_operator.PythonOperator(
-	    task_id='files-cloudupload',
-	    python_callable=files_cloudupload_task)
+    files_history = python_operator.PythonOperator(
+	    task_id='files-history',
+	    python_callable=files_history_task)
 
     # Finally, define the order in which tasks complete by using the >> and << operators, e.g.
-    cloudsql_proxydownload >> cloudsql_proxymkdir >> cloudsql_proxyinvoke >> files_review >> files_download >> files_cloudupload
+>> files_review >> files_downupload >> files_history
 
 # We can also structure DAGs and tasks like this:
 transform_dag = models.DAG(

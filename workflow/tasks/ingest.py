@@ -1,20 +1,20 @@
 from bs4 import BeautifulSoup
 import requests as re
 import pandas as pd
+import pandas.io.sql as sqlio
 import numpy as np
 import os
 import io
 import csv
-
+from datetime import datetime
 import logging
 logging.getLogger().setLevel(logging.INFO)
-from datetime import datetime
 
 # https://cloud.google.com/sql/docs/postgres/connect-external-app#languages
 import psycopg2
-conn = psycopg2.connect(user='postgres', password='Xypherium-0',
-						dbname='jpstat',
-                        host='/cloudsql/i-agility-212104:us-central1:dev-1')
+conn = psycopg2.connect(user='airflow', password='Xypherium-0',
+						dbname='jpstat',	
+                        host='35.224.240.50')
 
 from google.cloud import storage
 bucket_name = "i-agility-212104.appspot.com"
@@ -22,11 +22,10 @@ mdir = os.path.join('extracts', 'monthly_reports')
 
 def files_review_task():
 	#Retrieve all months currently available 
-	col = ['year', 'month', 'url']
-	top_df = pd.DataFrame(columns=col)
+	main_table = []
+	#url = input("http://www.e-stat.go.jp/SG1/estat/OtherListE.do?bid=000001006005&cycode=1")
 	url = "http://www.e-stat.go.jp/SG1/estat/OtherListE.do?bid=000001006005&cycode=1"
 	path='https://www.e-stat.go.jp'
-
 	r = re.get(url)
 	data = r.text
 	year='None'
@@ -35,18 +34,20 @@ def files_review_task():
 	for year_section in table.find_all('ul', {'class': 'stat-cycle_ul_other'}):
 	    header = year_section.find('li', {'class': 'stat-cycle_header'})
 	    year = header.find('span').get_text(' ', strip=True)
-
+	    #   print('year changed to ' + year)
 	    months_section = year_section.find('li', {'class': 'stat-cycle_item'})
 	    for month_row in months_section.find_all('div'):
 	        month_a = month_row.find('a')
 	        month = month_a.get_text().rstrip('.\n')
 	        monthurl = path + month_a.get('href')
 	        
-	        row = pd.DataFrame([[year, month, monthurl]], columns=col)
-	        if(len(top_df)==0):
-	            top_df = row
-	        else:
-	            top_df = top_df.append(row, ignore_index=True) #why the hell doesn't df.append work inplace?? Didn't it always use to?
+	        main_table.append({
+	            'year': year,
+	            'month': month,
+	            'url': monthurl
+	        })
+
+	top_df = pd.DataFrame(main_table)
 
 	logging.info('DataFrame of months generated: ' + str(top_df.size) + ' months available, from ' 
 		+ top_df.loc[len(top_df)-1,'year'] + ' ' + top_df.loc[len(top_df)-1,'month'] + ' to ' 
@@ -59,12 +60,24 @@ def files_review_task():
 	excelref_df = top_df.merge(excels_df, how='left', on='url')
 
 	logging.info('Excel URLs retrieved in ' + str(datetime.utcnow() - retrieve_month_excels_starttime) + '.')
-	logging.info(str(len(excelref_df)) + ' files to retrieve. Writing table to database...')
+	logging.info(str(len(excelref_df)) + ' files available from the website.')
+
+	select_all_sql = "SELECT year, month, url, excel_num, excel_description, excel_url FROM public.jpstat_excel_urls;"
+	curr_table_df = sqlio.read_sql_query(select_all_sql, conn)
+	logging.info(str(len(curr_table_df)) + ' files logged in database.')
+
+	disjoint_df = pd.concat([curr_table_df, excelref_df]).drop_duplicates(keep=False, subset=['excel_url'])
+	new_files_df = pd.merge(disjoint_df, excelref_df, how='inner')
+	new_files_df = new_files_df[curr_table_df.columns]
+	logging.info(str(len(new_files_df)) + ' new files to log.')
+
+	missing_df = pd.merge(disjoint_df, curr_table_df, how='inner')
+	logging.info(str(len(missing_df)) + ' files in database no longer available on website.')
 
 	#Convert DataFrame to stream and upload to PostgreSQL table on Google Cloud SQL
 	cur = conn.cursor()
 	excelurl_textstream = io.StringIO()
-	upload_df = excelref_df.copy()
+	upload_df = new_files_df.copy()
 	upload_df['excel_description'].replace(['\n', '\t'], '', regex=True, inplace=True)
 
 	upload_df.to_csv(excelurl_textstream, sep='\t', header=False, index=False, quoting=csv.QUOTE_NONE)
@@ -72,12 +85,9 @@ def files_review_task():
 	cur.copy_from(excelurl_textstream, 'jpstat_excel_urls', null="") # null values become ''
 	conn.commit()
 
-	logging.info('Excel URL database table updated.')
+	logging.info('Excel URL database table updated with ' + str(len(new_files_df)) + ' new files.')
 
-	#FIXME
-	# It's neccessary to check the descriptions of the excel files to see if a new description, i.e. new type of excel sheet structure, has been introduced.
-	# In that scenario we should send a notification or email alert, and write to some log file that a new cleaning method downstream will be required.
-
+	
 	exceldesccount_df = excelref_df.groupby(['excel_description']).agg(['count']).sort_values([('year', 'count')], ascending=False).iloc[:,:1]
 	exceldesccount_df.columns=['count']
 	exceldesccount_df.reset_index(inplace=True)
@@ -89,14 +99,14 @@ def files_review_task():
 	conn.commit()
 
 #FIXME: This task, unlike the review task that builds the url table, needs to be parallelizable
-def files_download_task():
+def files_downupload_task():
 	# Now actually download the files to local disk, before writing them to Google Cloud Storage (No direct transfer API available yet via python.).
 	cwd = os.getcwd()
 	logging.info('Now working in ' + cwd)
 
 	if not os.path.exists(mdir):
 	    os.makedirs(mdir)
-	logging.info('Saving files to ' + mdir)
+	logging.info('Saving files to ' + os.path.join(cwd, mdir))
 
 	# Building a dictionary of month names in a format more suitable for dirnames
 	months = excelref_df.month.unique() #do not sort, retain the order
@@ -124,7 +134,7 @@ def files_download_task():
 	logging.info('Downloads completed in ' + str(datetime.utcnow() - retrieve_month_excels_starttime) + '.')
 
 #FIXME: This task needs to be performed local to the machine that performed the parallel download task, possibly as a subDAG?
-def files_cloudupload_task():
+def files_history_task():
 	# Next, upload the files to Google Cloud Storage using the
 	filepathlist = []
 	for dirpath, subdir, files in os.walk(mdir):
