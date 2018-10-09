@@ -108,8 +108,11 @@ def files_downupload_task():
 	    os.makedirs(mdir)
 	logging.info('Saving files to ' + os.path.join(cwd, mdir))
 
+	sql = "SELECT year, month, url, excel_num, excel_description, excel_url FROM public.jpstat_excel_urls;"
+	curr_table_df = sqlio.read_sql_query(sql, conn)
+
 	# Building a dictionary of month names in a format more suitable for dirnames
-	months = excelref_df.month.unique() #do not sort, retain the order
+	months = curr_table_df.month.unique() #do not sort, retain the order
 	monthnum = list(range(1,13,1))
 	monthdirs = [str(num).zfill(2) + month for num,month in zip(monthnum, months)]
 	monthnamedict = dict(zip(months, monthdirs))
@@ -190,3 +193,7 @@ def upload_blob(bucket_name, source_file_name, destination_blob_name):
     logging.info('File {} uploaded to {}.'.format(
         source_file_name,
         destination_blob_name))
+
+
+
+        
