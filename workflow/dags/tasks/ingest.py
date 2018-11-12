@@ -133,7 +133,6 @@ def files_downupload_task():
 
 	download_df = curr_table_df.copy()
 	download_df['path'] = mdir + '/' + download_df['year'] + '/' + download_df['month'].map(monthnamedict) + '/' + download_df['excel_num'] + '.xls'
-	download_df['path'] = [x.replace('\\', '/') for x in download_df['path']]
 	logging.info(str(len(download_df)) + 'files to download.')
 
 	# Now iterate and download to local worker
@@ -166,27 +165,19 @@ def files_downupload_task():
 
 	# Upload to GCS from local worker, change destination path delimiters from windows to unix if neccessary
 	upload_month_excels_starttime = datetime.utcnow()
-	logging.info('Starting to upload excel files for each month to Google Cloud Storage bucket ' + bucket_name + 'at ' + upload_month_excels_starttime + ' UTC.')
+	logging.info('Starting to upload excel files for each month to Google Cloud Storage bucket ' + bucket_name + ' at ' + upload_month_excels_starttime + ' UTC.')
 	[upload_blob(bucket_name, source_file, source_file.replace('\\', '/').lstrip(job_start_time + '/')) for source_file in filepathlist]
+	logging.info(str(len(filepathlist)) + ' files uploaded.')
 	logging.info('Uploads completed in ' + str(datetime.utcnow() - retrieve_month_excels_starttime) + '.')
-	logging.info('Excel URL database table updated with ' + str(len(upload_df)) + 'files.')
 
 #TODO: Groupby available files and scan for new data cleaning logic required.
 def files_history_task():
 	print("files-history-task: To-Do.")
 	datenow = str(datetime.now().date())
-	
+
 	#TODO: Parallel task to downupload - look for new file descriptions and send notification if found (to create new cleaning logic).
-	# exceldesccount_df = excelref_df.groupby(['excel_description']).agg(['count']).sort_values([('year', 'count')], ascending=False).iloc[:,:1]
-	# exceldesccount_df.columns=['count']
-	# exceldesccount_df.reset_index(inplace=True)
-
-	# exceldesccount_textstream = io.StringIO()
-	# exceldesccount_df.to_csv(exceldesccount_textstream, sep='\t', header=False, index=False)
-	# exceldesccount_textstream.seek(0)
-	# cur.copy_from(exceldesccount_textstream, 'jpstat_excel_descriptions', null="") # null values become ''
-	# conn.commit()
-
+	# Use the number and shape of dataframe after ingesting with pandas as the guideline, instead of the file description
+	conn.close()
 
 """
 Returns a dataframe of details on excel sheets of data available for a given url
