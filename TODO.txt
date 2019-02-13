@@ -1,0 +1,7 @@
+1. scheduled update of database table if new month has been uploaded by stat.go.jp
+2. mapbox gl/d3.js implementation of simple graphs (each breakdown separate)
+3. story/viz/statistics ui breakdown
+4. creative visualization of movement
+	- combined in, out, total, gender breakdown visualization on single map
+	- network graph visualization
+	- inferred movement visualization
