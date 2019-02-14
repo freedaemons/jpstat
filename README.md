@@ -9,7 +9,7 @@ If you are interested in the methodology, you can view a PDF presentation locate
 
 Credits & Links
 
-* Design, Development, Data & Modelling - [Friedemann](https://linkedin.com/in/citrusvanilla)
+* Design, Development, Data & Modelling - [Friedemann Ang](https://linkedin.com/in/friedemannang)
 * Design & Layout inspiration - [Justin Fung](https://linkedin.com/in/citrusvanilla) and his [Manhattan Population Explorer](https://github.com/citrusvanilla/manhattanpopulationexplorer)
 * Map engine - [Mapbox GL JS](https://www.mapbox.com/mapbox-gl-js/api/)
 * Graphing engine - [D3.js](https://d3js.org/)
