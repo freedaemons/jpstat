@@ -45,7 +45,7 @@ def google_geocode(address_list, cred):
             answer['Latitude'] = location['lat']
             answer['Longitude'] = location['lng']
             result.append(answer)
-        except IndexError as e:
+        except (IndexError, KeyError) as e:
             result.append(answer)
 
         
@@ -56,7 +56,7 @@ def google_geocode(address_list, cred):
             est_time = datetime.now() + timedelta(days=(est_passes))
             remaining_period = period - elapsed_period
             remaining_seconds = remaining_period.total_seconds()
-            if remaining_seconds > 0 and first_pass == True:
+            if remaining_seconds > 0 and first_pass == True and est_passes > 1:
                 logging.info('Reached free limit for today in ' + str(elapsed_period // 3600) + ' hours, ' + str((elapsed_period % 3600) // 60) + ' min.')
                 logging.info('Estimated completion at ' + str(est_time.isoformat()[:19]) + ' local time.')
 #                logging.info('Resuming in ' + str(remaining_seconds // 3600) + ' hours, ' + str((remaining_seconds % 3600) // 60) + ' min.')
@@ -108,7 +108,7 @@ def onemap_geocode(address_list):
             answer['Latitude'] = first_match['LATITUDE']
             answer['Longitude'] = first_match['LONGITUDE']
             result.append(answer)
-        except IndexError as e:
+        except (IndexError, KeyError) as e:
             result.append(answer)
 
         
@@ -119,7 +119,7 @@ def onemap_geocode(address_list):
             est_time = datetime.now() + timedelta(seconds=(60 * est_passes))
             remaining_period = period - elapsed_period
             remaining_seconds = remaining_period.total_seconds()
-            if remaining_seconds > 0 and first_pass == True:
+            if remaining_seconds > 0 and first_pass == True and est_passes > 1:
                 logging.info('Reached limit for first minute in ' + str(elapsed_period.total_seconds()) + 's.')
                 logging.info('Estimated completion at ' + str(est_time.isoformat()[:19]) + ' local time.')
 #                logging.info('Resuming in ' + str(remaining_seconds) + 's.')
