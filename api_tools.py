@@ -40,14 +40,15 @@ def google_geocode(address_list, cred):
         body = json.loads(response.text)
         try:
             first_match = body['results'][0]
+            answer['Formatted Address'] = first_match['formatted_address']
+            location = first_match['geometry']['location']
+            answer['Latitude'] = location['lat']
+            answer['Longitude'] = location['lng']
+            result.append(answer)
         except IndexError as e:
             result.append(answer)
 
-        answer['Formatted Address'] = first_match['formatted_address']
-        location = first_match['geometry']['location']
-        answer['Latitude'] = location['lat']
-        answer['Longitude'] = location['lng']
-        result.append(answer)
+        
         
         unused_limit -= 1
         if unused_limit < 1:
@@ -64,7 +65,10 @@ def google_geocode(address_list, cred):
             start_time = datetime.now()
     
     logging.info('Completed geocoding ' + str(len(address_list)) + ' addresses.')
-    return pd.DataFrame(result)
+    result_df = pd.DataFrame(result)
+    result_df = result_df[['address', 'Formatted Address', 'Latitude', 'Longitude']]
+    logging.info('Completed geocoding ' + str(len(address_list)) + ' addresses.')          
+    return result_df
 
 """
 Call OneMap SG API to geocode addresses, staying within limit of 250 per minute.
@@ -100,13 +104,14 @@ def onemap_geocode(address_list):
         body = json.loads(response.text)
         try:
             first_match = body['results'][0]
+            answer['Formatted Address'] = first_match['ADDRESS']
+            answer['Latitude'] = first_match['LATITUDE']
+            answer['Longitude'] = first_match['LONGITUDE']
+            result.append(answer)
         except IndexError as e:
             result.append(answer)
 
-        answer['Formatted Address'] = first_match['ADDRESS']
-        answer['Latitude'] = first_match['LATITUDE']
-        answer['Longitude'] = first_match['LONGITUDE']
-        result.append(answer)
+        
         
         unused_limit -= 1
         if unused_limit < 1:
@@ -123,5 +128,7 @@ def onemap_geocode(address_list):
             unused_limit = LIMIT
             limit_start_time = datetime.now()
     
+    result_df = pd.DataFrame(result)
+    result_df = result_df[['address', 'Formatted Address', 'Latitude', 'Longitude']]
     logging.info('Completed geocoding ' + str(len(address_list)) + ' addresses.')          
-    return pd.DataFrame(result)
+    return result_df
