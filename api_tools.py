@@ -65,8 +65,7 @@ def google_geocode(address_list, cred):
             start_time = datetime.now()
     
     logging.info('Completed geocoding ' + str(len(address_list)) + ' addresses.')
-    result_df = pd.DataFrame(result)
-    result_df = result_df[['address', 'Formatted Address', 'Latitude', 'Longitude']]
+    result_df = pd.DataFrame(result, columns=['address', 'Formatted Address', 'Latitude', 'Longitude'], index=address_list.index)
     logging.info('Completed geocoding ' + str(len(address_list)) + ' addresses.')          
     return result_df
 
@@ -87,6 +86,7 @@ def onemap_geocode(address_list):
     limit_start_time = datetime.now()
     first_pass = True
     est_passes = len(address_list) / LIMIT
+    print(est_passes)
     
     for address in address_list:
         answer = {
@@ -128,7 +128,6 @@ def onemap_geocode(address_list):
             unused_limit = LIMIT
             limit_start_time = datetime.now()
     
-    result_df = pd.DataFrame(result)
-    result_df = result_df[['address', 'Formatted Address', 'Latitude', 'Longitude']]
+    result_df = pd.DataFrame(result, columns=['address', 'Formatted Address', 'Latitude', 'Longitude'], index=address_list.index)
     logging.info('Completed geocoding ' + str(len(address_list)) + ' addresses.')          
     return result_df
