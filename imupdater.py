@@ -125,10 +125,11 @@ def update_cloudstore():
 
 	return download_df
 
+#TODO
 def update_data(df):
 	new_cloud_files = list(df['path'])
-	table_1_list= [x for x in new_cloud_files if x.split('/')[-1] is '1.xls']
-	table_2_list= [x for x in new_cloud_files if x.split('/')[-1] is '2.xls']
+	table_1_list= [x for x in new_cloud_files if x.split('/')[-1] == '1.xls']
+	table_2_list= [x for x in new_cloud_files if x.split('/')[-1] == '2.xls']
 	table_3_1_list = [x for x in new_cloud_files if '3-1' in x]
 	table_3_2_list = [x for x in new_cloud_files if '3-2' in x]
 
@@ -311,14 +312,10 @@ def dataframe_to_postgres(df, tablename):
 
 #TODO
 def in_out_intra_migrants(table_1_list, table_3_1_list, table_3_2_list)
-	logging.info(str(result.size) + ' months of data available online.')
-	start_stacking = time.time()
+	logging.info('Compiling and pivoting in, out, and intra-prefecture/city migrants...')
 
 	in_migrants_age_df = combine_clean_3xls_tables(table3_1_list)
 	out_migrants_age_df = combine_clean_3xls_tables(table3_2_list)
-
-	stacking_time = (time.time() - start_stacking)
-	logging.info(' ' + str(datetime.timedelta(seconds=stacking_time)))
 
 	in_melted_df = pd.melt(in_migrants_age_df, id_vars=['Prefecture Num', 'Prefecture', 'Gender', 'Year', 'Month'], value_name='Inmigrants', var_name='Age bucket')
 	out_melted_df = pd.melt(out_migrants_age_df, id_vars=['Prefecture Num', 'Prefecture', 'Gender', 'Year', 'Month'], value_name='Outmigrants', var_name='Age bucket')    
@@ -327,6 +324,7 @@ def in_out_intra_migrants(table_1_list, table_3_1_list, table_3_2_list)
                               left_on=list(in_melted_df.columns).remove('Inmigrants'), 
                               right_on=list(out_melted_df.columns).remove('Outmigrants'))
 
+	logging.info('Done.')
 	return combined_melted_df
 
 def combine_clean_3xls_tables(table_excel_list):
