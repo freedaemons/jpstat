@@ -15,6 +15,9 @@ import shutil
 
 #localdir = os.path.join('internalmigration-monthly')
 #bucket_name = "internalmigration-monthly"
+#conn = psycopg2.connect(user='fried', password='m3sametA!',
+#						dbname='jpstat',	
+#                        host='wakawaka')
 localdir = os.path.join('extracts', 'monthly_reports')
 bucket_name = 'i-agility-212104.appspot.com'
 conn = psycopg2.connect(user='airflow', password='Xypherium-0',
@@ -42,15 +45,15 @@ def main():
 		try:
 			if has_update():
 				update_references()
-				update_cloudstore()
-				update_db()
+				uploaded_files_df = update_cloudstore()
+				update_data(uploaded_files)
 		except TimeoutError as te: 
 			logging.exception('Connection timed out.')
 		except Exception as e: 
 			logging.exception('Non-connection related exception ocurred.')
 
 		elapsed = (time.time() - start)
-		logging.exception('Runtime: ' + str(datetime.timedelta(seconds=elapsed)))
+		logging.info('Runtime: ' + str(datetime.timedelta(seconds=elapsed)))
 
 	sched.start()
 
@@ -120,9 +123,25 @@ def update_cloudstore():
 	[upload_blob(bucket_name, source_file, source_file.replace('\\', '/')) for source_file in filepathlist]
 	logging.info(str(len(filepathlist)) + ' files uploaded in .' + str(datetime.utcnow() - upload_month_excels_starttime) + '.')
 
-#TODO
-def update_db():
-	return True
+	return download_df
+
+def update_data(df):
+	new_cloud_files = list(df['path'])
+	table_1_list= [x for x in new_cloud_files if x.split('/')[-1] is '1.xls']
+	table_2_list= [x for x in new_cloud_files if x.split('/')[-1] is '2.xls']
+	table_3_1_list = [x for x in new_cloud_files if '3-1' in x]
+	table_3_2_list = [x for x in new_cloud_files if '3-2' in x]
+
+	shutil.rmtree(localdir)
+	os.makedirs(localdir)
+
+	#actually download files from google cloud
+
+	in_out_intra_migrants_df = in_out_intra_migrants(table_1_list, table_3_1_list, table_3_2_list)
+	trajectories_df = trajectories(table_2_list)
+
+	dataframe_to_postgres(in_out_intra_migrants_df, 'in_out_intra_migrants')
+	dataframe_to_postgres(trajectories_df, 'trajectories')
 
 def get_new_files():
 	top_df = get_online_dates()
@@ -237,31 +256,128 @@ def retrieve_month_excels_urls(murl, path):
     return(mdf)
 
 def list_xls_blobs(bucket_name):
-"""Lists all the blobs in the bucket."""
-storage_client = storage.Client()
-bucket = storage_client.get_bucket(bucket_name)
+	"""Lists all the blobs in the bucket."""
+	storage_client = storage.Client()
+	bucket = storage_client.get_bucket(bucket_name)
 
-filelist = []
-blobs = bucket.list_blobs()
+	filelist = []
+	blobs = bucket.list_blobs()
 
-for blob in blobs:
-    path = str(blob.name)
-    if(path[-1:] != '/'):
-        filelist.append(blob.name)
+	for blob in blobs:
+	    path = str(blob.name)
+	    if(path[-1:] != '/'):
+	        filelist.append(blob.name)
 
-return filelist
+	return filelist
 
 def upload_blob(bucket_name, source_file_name, destination_blob_name):
-    """Uploads a file to the bucket."""
-    storage_client = storage.Client()
-    bucket = storage_client.get_bucket(bucket_name)
-    blob = bucket.blob(destination_blob_name)
+	"""Uploads a file to the bucket."""
+	storage_client = storage.Client()
+	bucket = storage_client.get_bucket(bucket_name)
+	blob = bucket.blob(destinationnation_blob_name)
 
-    blob.upload_from_filename(source_file_name)
+	blob.upload_from_filename(source_file_name)
 
-    print('File {} uploaded to {}.'.format(
-        source_file_name,
-        destination_blob_name))
+	print('File {} uploaded to {}.'.format(
+		source_file_name,
+		destination_blob_name))
+
+def download_blob(bucket_name, source_blob_name, destination_file_name):
+	"""Downloads a blob from the bucket."""
+	storage_client = storage.Client()
+	bucket = storage_client.get_bucket(bucket_name)
+	blob = bucket.blob(source_blob_name)
+
+	if '/' in destination_file_name:
+		dirpath = os.path.join(*destination_file_name.split('/')[:-1])
+		if not os.path.exists(dirpath):
+			os.makedirs(dirpath)
+
+	blob.download_to_filename(destination_file_name)
+
+	print('Blob {} downloaded to {}.'.format(
+		source_blob_name,
+		destination_file_name))
+
+def dataframe_to_postgres(df, tablename):
+    cur = conn.cursor()
+    textstream = io.StringIO()
+    upload_df = df.copy()
+
+    upload_df.to_csv(textstream, sep='\t', header=False, index=False, quoting=csv.QUOTE_NONE)
+    textstream.seek(0) 
+    cur.copy_from(textstream, tablename, null="") # null values become ''
+    conn.commit()
+
+#TODO
+def in_out_intra_migrants(table_1_list, table_3_1_list, table_3_2_list)
+	logging.info(str(result.size) + ' months of data available online.')
+	start_stacking = time.time()
+
+	in_migrants_age_df = combine_clean_3xls_tables(table3_1_list)
+	out_migrants_age_df = combine_clean_3xls_tables(table3_2_list)
+
+	stacking_time = (time.time() - start_stacking)
+	logging.info(' ' + str(datetime.timedelta(seconds=stacking_time)))
+
+	in_melted_df = pd.melt(in_migrants_age_df, id_vars=['Prefecture Num', 'Prefecture', 'Gender', 'Year', 'Month'], value_name='Inmigrants', var_name='Age bucket')
+	out_melted_df = pd.melt(out_migrants_age_df, id_vars=['Prefecture Num', 'Prefecture', 'Gender', 'Year', 'Month'], value_name='Outmigrants', var_name='Age bucket')    
+
+	combined_melted_df = pd.merge(in_melted_df, out_melted_df, how='left',
+                              left_on=list(in_melted_df.columns).remove('Inmigrants'), 
+                              right_on=list(out_melted_df.columns).remove('Outmigrants'))
+
+	return combined_melted_df
+
+def combine_clean_3xls_tables(table_excel_list):
+    #Always take the last sheet: assume that in the absense of separate sheets, the numbers are for Japanese citizens only
+    table_df_list = []
+
+    for filepath in table_excel_list:
+        filepath_parts = filepath.split('\\') #change to / for linux
+        year = filepath_parts[2]
+        month = filepath_parts[3][:2]
+
+        sheets = pd.ExcelFile(filepath).sheet_names
+        df = pd.read_excel(filepath, sheet_name=len(sheets)-1)
+
+        messy_df = df.copy()
+        messy_df.reset_index(inplace=True)
+        messy_df.columns = [x.replace('～', '-') for x in messy_df.iloc[13].replace({
+                                                    'Prefectures': 'Prefecture Num',
+                                                    '総 数 1)': 'Total',
+                                                    '0～4歳': '0～4',
+                                                    '90歳以上': '90 & above'
+                                                    }).fillna('Prefecture')]
+        messy_df.iloc[18,10] = messy_df.iloc[18,8]
+        messy_df = messy_df.iloc[18:66,8:]
+        messy_df.reset_index(drop=True, inplace=True)
+        messy_df.dropna(axis=1, inplace=True)
+        messy_df.loc[0,'Prefecture Num'] = '00'
+
+        both_df = messy_df.iloc[:,:22]
+        male_df = messy_df.iloc[:,22:44]
+        female_df = messy_df.iloc[:,44:66]
+
+        both_df['Gender'] = 'Both'
+        male_df['Gender'] = 'Male'
+        female_df['Gender'] = 'Female'
+
+        this_month_df = pd.concat([both_df, male_df, female_df])
+        this_month_df['Year'] = str(year)
+        this_month_df['Month'] = str(month)
+
+        if False not in this_month_df.iloc[:,2:22].applymap(np.isreal).values.flatten():
+            table_df_list.append(this_month_df)
+        else:
+            print('Some non-numeric value found in counts.')
+    
+    combined_df = pd.concat(table_df_list).reset_index(drop=True)
+    return combined_df
+
+#TODO
+def trajectories(table_2_list):
+	return False
 
 if __name__ == "__main__":
 	main()
