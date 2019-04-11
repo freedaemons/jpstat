@@ -24,7 +24,7 @@ def google_geocode(address_list, cred):
     first_pass = True
     est_passes = len(address_list) / LIMIT
     
-    for address in address_list:
+    for idx, address in enumerate(address_list):
         answer = {
             'address': address,
             'Formatted Address': None,
@@ -34,8 +34,15 @@ def google_geocode(address_list, cred):
 
         params = {'address': address, 'key': cred}
         response = requests.get(url, params=params)
+        if response.status_code == 400:
+            result.append(answer)
+            logging.info('address not geocodeable at item ' + str(idx) + ': ' + str(address))
+            continue
         if response.status_code != 200:
             result.append(answer)
+            logging.info('API unavailable at item ' + str(idx) + ': ' + str(address))
+            logging.info(response)
+            break
 
         body = json.loads(response.text)
         try:
@@ -45,8 +52,10 @@ def google_geocode(address_list, cred):
             answer['Latitude'] = location['lat']
             answer['Longitude'] = location['lng']
             result.append(answer)
+            logging.info('Item ' + str(idx) + ' geocoded.')
         except (IndexError, KeyError) as e:
             result.append(answer)
+            logging.info('No location match for item ' + str(idx) + ': ' + str(address))
 
         
         
